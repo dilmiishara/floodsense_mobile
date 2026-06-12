@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../models/alert.dart';
-import '../services/alert_service.dart';
+import '../models/prediction_alert.dart';
+import '../services/prediction_alert_service.dart';
 import '../widgets/bottom_nav_bar.dart';
 
 class AlertsScreen extends StatefulWidget {
@@ -12,345 +12,380 @@ class AlertsScreen extends StatefulWidget {
 }
 
 class _AlertsScreenState extends State<AlertsScreen> {
-  final AlertService _service = AlertService();
-  List<Alert> _activeAlerts = [];
+  final PredictionAlertService _service = PredictionAlertService();
+  List<PredictionAlert> _alerts = [];
+  List<PredictionAlert> _historyAlerts = [];
   bool _isLoading = true;
+  bool _historyLoading = false;
   String? _errorMessage;
-  bool _notificationsEnabled = true;
-
-  final List<Map<String, dynamic>> _historyAlerts = [
-    {
-      'type': 'Flood',
-      'severity': 'HIGH',
-      'message': 'Water levels returned to normal at Rathnapura.',
-      'status': 'resolved',
-      'detectedAt': '2026-03-28 14:00:00',
-    },
-    {
-      'type': 'Rainfall',
-      'severity': 'MEDIUM',
-      'message': 'Heavy rainfall advisory lifted for Ellagawa.',
-      'status': 'resolved',
-      'detectedAt': '2026-03-27 09:00:00',
-    },
-    {
-      'type': 'Flood',
-      'severity': 'CRITICAL',
-      'message': 'Major flood warning resolved at Millakanda.',
-      'status': 'resolved',
-      'detectedAt': '2026-03-25 08:30:00',
-    },
-    {
-      'type': 'Flood Threshold Exceeded',
-      'severity': 'HIGH',
-      'message': 'Water level returned below threshold at Putupaula.',
-      'status': 'resolved',
-      'detectedAt': '2026-03-24 11:00:00',
-    },
-  ];
 
   @override
   void initState() {
     super.initState();
-    _fetchActiveAlerts();
+    _fetchAlerts();
   }
 
-  Future<void> _fetchActiveAlerts() async {
+  Future<void> _fetchAlerts() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
     try {
-      final alerts = await _service.getActiveAlerts();
-      setState(() {
-        _activeAlerts = alerts;
-        _isLoading = false;
-      });
+      final alerts = await _service.getPredictionAlerts();
+      if (mounted) {
+        setState(() {
+          _alerts = alerts;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _errorMessage = 'Could not load alerts. Please try again.';
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Could not load alerts. Please try again.';
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  Color _getSeverityColor(String severity) {
-    switch (severity.toUpperCase()) {
-      case 'CRITICAL':
-        return const Color(0xFFE24B4A);
-      case 'HIGH':
-        return const Color(0xFFBA7517);
-      case 'MEDIUM':
-        return const Color(0xFF185FA5);
-      case 'LOW':
-        return const Color(0xFF3B6D11);
+  Color _getRiskColor(String risk) {
+    switch (risk.toLowerCase()) {
+      case 'major flood':
+        return const Color(0xFFEF4444);
+      case 'minor flood':
+        return const Color(0xFFF97316);
+      case 'alert':
+        return const Color(0xFFEAB308);
+      case 'normal':
+        return const Color(0xFF22C55E);
       default:
         return Colors.grey;
     }
   }
 
-  Color _getSeverityBgColor(String severity) {
-    switch (severity.toUpperCase()) {
-      case 'CRITICAL':
-        return const Color(0xFFFCEBEB);
-      case 'HIGH':
-        return const Color(0xFFFAEEDA);
-      case 'MEDIUM':
-        return const Color(0xFFE6F1FB);
-      case 'LOW':
-        return const Color(0xFFEAF3DE);
+  Color _getRiskBgColor(String risk) {
+    switch (risk.toLowerCase()) {
+      case 'major flood':
+        return const Color(0xFFFEF2F2);
+      case 'minor flood':
+        return const Color(0xFFFFF7ED);
+      case 'alert':
+        return const Color(0xFFFEFCE8);
+      case 'normal':
+        return const Color(0xFFF0FDF4);
       default:
         return Colors.grey[100]!;
     }
   }
 
-  IconData _getSeverityIcon(String severity) {
-    switch (severity.toUpperCase()) {
-      case 'CRITICAL':
+  IconData _getRiskIcon(String risk) {
+    switch (risk.toLowerCase()) {
+      case 'major flood':
         return Icons.warning_rounded;
-      case 'HIGH':
-        return Icons.error_rounded;
-      case 'MEDIUM':
+      case 'minor flood':
+        return Icons.water_rounded;
+      case 'alert':
         return Icons.info_rounded;
-      case 'LOW':
+      case 'normal':
         return Icons.check_circle_rounded;
       default:
         return Icons.circle;
     }
   }
 
-  String _formatTime(DateTime dateTime) {
-    final now = DateTime.now();
-    final diff = now.difference(dateTime);
-    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
-    if (diff.inHours < 24) return '${diff.inHours} hours ago';
-    return '${diff.inDays} days ago';
+  String _formatForecastTime(String forecastTime) {
+    try {
+      final dt = DateTime.parse(forecastTime).toLocal();
+      final months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      ];
+      return '${dt.day.toString().padLeft(2, '0')} ${months[dt.month - 1]}, '
+          '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (e) {
+      return forecastTime;
+    }
   }
 
-  void _showHistoryBottomSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.75,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        builder: (context, scrollController) => Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFFE8ECF0),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(
-            children: [
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[400],
-                  borderRadius: BorderRadius.circular(2),
-                ),
+  void _showHistoryBottomSheet() async {
+  setState(() => _historyLoading = true);
+
+  try {
+    final history = await _service.getHistoryAlerts();
+    setState(() {
+      _historyAlerts = history;
+      _historyLoading = false;
+    });
+  } catch (e) {
+    setState(() => _historyLoading = false);
+  }
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (context) => DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFFE8ECF0),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[400],
+                borderRadius: BorderRadius.circular(2),
               ),
-              Container(
-                color: Colors.white,
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Alert History',
-                          style: GoogleFonts.poppins(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFF0D2137),
-                            letterSpacing: -0.3,
-                          ),
+            ),
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Alert History',
+                        style: GoogleFonts.poppins(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF0D2137),
+                          letterSpacing: -0.3,
                         ),
-                        Text(
-                          'Previously resolved alerts',
-                          style: GoogleFonts.poppins(
-                            fontSize: 11,
-                            color: Colors.grey[500],
-                          ),
-                        ),
-                      ],
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
                       ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFD4EDBA),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '${_historyAlerts.length} resolved',
+                      Text(
+                        'Past flood predictions',
                         style: GoogleFonts.poppins(
                           fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF2D6A0A),
+                          color: Colors.grey[500],
                         ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD4EDBA),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '${_historyAlerts.length} past alerts',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF2D6A0A),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              Expanded(
-                child: ListView.builder(
-                  controller: scrollController,
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _historyAlerts.length,
-                  itemBuilder: (context, index) {
-                    final alert = _historyAlerts[index];
-                    final severity = alert['severity'] as String;
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.07),
-                            blurRadius: 10,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
-                      ),
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          border: Border(
-                            left: BorderSide(
-                              color: Colors.grey[400]!,
-                              width: 4,
+            ),
+            Expanded(
+              child: _historyLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                          color: Color(0xFF1a3a5c)),
+                    )
+                  : _historyAlerts.isEmpty
+                      ? Center(
+                          child: Text(
+                            'No history available',
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              color: Colors.grey[400],
                             ),
                           ),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              width: 38,
-                              height: 38,
+                        )
+                      : ListView.builder(
+                          controller: scrollController,
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _historyAlerts.length,
+                          itemBuilder: (context, index) {
+                            final alert = _historyAlerts[index];
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 12),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFD4EDBA),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: const Icon(
-                                Icons.check_circle_rounded,
-                                color: Color(0xFF2D6A0A),
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        alert['type'],
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.grey[700],
-                                          letterSpacing: -0.2,
-                                        ),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 7,
-                                          vertical: 2,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color:
-                                              _getSeverityBgColor(severity),
-                                          borderRadius:
-                                              BorderRadius.circular(6),
-                                        ),
-                                        child: Text(
-                                          severity,
-                                          style: GoogleFonts.poppins(
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.w600,
-                                            color:
-                                                _getSeverityColor(severity),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    alert['message'],
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 11,
-                                      color: Colors.grey[500],
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        Icons.access_time_rounded,
-                                        size: 11,
-                                        color: Colors.grey[400],
-                                      ),
-                                      const SizedBox(width: 3),
-                                      Text(
-                                        alert['detectedAt'],
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 10,
-                                          color: Colors.grey[400],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 2,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFD4EDBA),
-                                          borderRadius:
-                                              BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          'Resolved',
-                                          style: GoogleFonts.poppins(
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.w600,
-                                            color: const Color(0xFF2D6A0A),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(14),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.07),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 3),
                                   ),
                                 ],
                               ),
-                            ),
-                          ],
+                              child: Container(
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  border: Border(
+                                    left: BorderSide(
+                                      color: Colors.grey[400]!,
+                                      width: 4,
+                                    ),
+                                  ),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      width: 38,
+                                      height: 38,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFD4EDBA),
+                                        borderRadius:
+                                            BorderRadius.circular(10),
+                                      ),
+                                      child: const Icon(
+                                        Icons.check_circle_rounded,
+                                        color: Color(0xFF2D6A0A),
+                                        size: 20,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Text(
+                                                alert.stationName,
+                                                style: GoogleFonts.poppins(
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: Colors.grey[700],
+                                                ),
+                                              ),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 7,
+                                                  vertical: 2,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: _getRiskBgColor(
+                                                      alert.floodRiskLevel),
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
+                                                ),
+                                                child: Text(
+                                                  alert.floodRiskLevel,
+                                                  style: GoogleFonts.poppins(
+                                                    fontSize: 9,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: _getRiskColor(
+                                                        alert.floodRiskLevel),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            _getRiskMessage(alert),
+                                            style: GoogleFonts.poppins(
+                                              fontSize: 11,
+                                              color: Colors.grey[500],
+                                              height: 1.4,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Row(
+                                            children: [
+                                              Icon(
+                                                Icons.access_time_rounded,
+                                                size: 11,
+                                                color: Colors.grey[400],
+                                              ),
+                                              const SizedBox(width: 3),
+                                              Text(
+                                                _formatForecastTime(
+                                                    alert.forecastTime),
+                                                style: GoogleFonts.poppins(
+                                                  fontSize: 10,
+                                                  color: Colors.grey[400],
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 6,
+                                                  vertical: 2,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFFD4EDBA),
+                                                  borderRadius:
+                                                      BorderRadius.circular(4),
+                                                ),
+                                                child: Text(
+                                                  'Passed',
+                                                  style: GoogleFonts.poppins(
+                                                    fontSize: 9,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: const Color(0xFF2D6A0A),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
                         ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
-    );
+    ),
+  );
+}
+
+  String _timeAgo(String createdAt) {
+    try {
+      final dt = DateTime.parse(createdAt).toLocal();
+      final now = DateTime.now();
+      final diff = now.difference(dt);
+      if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+      if (diff.inHours < 24) return '${diff.inHours} hours ago';
+      return '${diff.inDays} days ago';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  String _getRiskMessage(PredictionAlert alert) {
+    switch (alert.floodRiskLevel.toLowerCase()) {
+      case 'major flood':
+        return 'Major flood risk at ${alert.stationName}. Water level: ${alert.predictedWaterLevel}m. Immediate action required.';
+      case 'minor flood':
+        return 'Minor flood detected at ${alert.stationName}. Water level: ${alert.predictedWaterLevel}m. Stay cautious.';
+      case 'alert':
+        return 'Flood alert at ${alert.stationName}. Water level: ${alert.predictedWaterLevel}m. Monitor situation closely.';
+      default:
+        return 'Conditions normal at ${alert.stationName}. Water level: ${alert.predictedWaterLevel}m.';
+    }
   }
 
   @override
@@ -409,7 +444,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Active Alerts',
+                    'Flood Alerts',
                     style: GoogleFonts.poppins(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
@@ -417,51 +452,45 @@ class _AlertsScreenState extends State<AlertsScreen> {
                       letterSpacing: -0.3,
                     ),
                   ),
-                  if (!_isLoading && _activeAlerts.isNotEmpty)
+                  if (!_isLoading)
                     Text(
-                      '${_activeAlerts.length} alerts need attention',
+                      _alerts.isEmpty
+                          ? 'All clear right now'
+                          : '${_alerts.length} active alerts',
                       style: GoogleFonts.poppins(
                         fontSize: 11,
                         fontWeight: FontWeight.w500,
-                        color: const Color(0xFFE24B4A),
-                      ),
-                    )
-                  else if (!_isLoading)
-                    Text(
-                      'All clear right now',
-                      style: GoogleFonts.poppins(
-                        fontSize: 11,
-                        color: Colors.grey[500],
+                        color: _alerts.isEmpty
+                            ? Colors.grey[500]
+                            : const Color(0xFFEF4444),
                       ),
                     ),
                 ],
               ),
             ],
           ),
-          Row(
-            children: [
-              Text(
-                'Notify',
-                style: GoogleFonts.poppins(
-                  fontSize: 12,
-                  color: Colors.grey[500],
-                ),
+          GestureDetector(
+            onTap: _fetchAlerts,
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8ECF0),
+                borderRadius: BorderRadius.circular(10),
               ),
-              Switch(
-                value: _notificationsEnabled,
-                onChanged: (val) =>
-                    setState(() => _notificationsEnabled = val),
-                activeColor: const Color(0xFF1a3a5c),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              child: const Icon(
+                Icons.refresh_rounded,
+                color: Color(0xFF1a3a5c),
+                size: 20,
               ),
-            ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildContent() {
+Widget _buildContent() {
     if (_isLoading) {
       return const Center(
         child: CircularProgressIndicator(color: Color(0xFF1a3a5c)),
@@ -470,7 +499,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
     if (_errorMessage != null) {
       return _buildErrorState();
     }
-    if (_activeAlerts.isEmpty) {
+    if (_alerts.isEmpty) {
       return _buildEmptyState();
     }
     return Column(
@@ -519,13 +548,13 @@ class _AlertsScreenState extends State<AlertsScreen> {
         // Alerts list
         Expanded(
           child: RefreshIndicator(
-            onRefresh: _fetchActiveAlerts,
+            onRefresh: _fetchAlerts,
             color: const Color(0xFF1a3a5c),
             child: ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount: _activeAlerts.length,
+              itemCount: _alerts.length,
               itemBuilder: (context, index) {
-                return _buildAlertCard(_activeAlerts[index]);
+                return _buildAlertCard(_alerts[index]);
               },
             ),
           ),
@@ -533,8 +562,8 @@ class _AlertsScreenState extends State<AlertsScreen> {
       ],
     );
   }
-
-  Widget _buildAlertCard(Alert alert) {
+  
+  Widget _buildAlertCard(PredictionAlert alert) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
@@ -561,7 +590,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
             decoration: BoxDecoration(
               border: Border(
                 left: BorderSide(
-                  color: _getSeverityColor(alert.severity),
+                  color: _getRiskColor(alert.floodRiskLevel),
                   width: 4,
                 ),
               ),
@@ -577,12 +606,12 @@ class _AlertsScreenState extends State<AlertsScreen> {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: _getSeverityBgColor(alert.severity),
+                    color: _getRiskBgColor(alert.floodRiskLevel),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
-                    _getSeverityIcon(alert.severity),
-                    color: _getSeverityColor(alert.severity),
+                    _getRiskIcon(alert.floodRiskLevel),
+                    color: _getRiskColor(alert.floodRiskLevel),
                     size: 22,
                   ),
                 ),
@@ -596,7 +625,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
                         children: [
                           Expanded(
                             child: Text(
-                              alert.type,
+                              alert.stationName,
                               style: GoogleFonts.poppins(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
@@ -611,13 +640,13 @@ class _AlertsScreenState extends State<AlertsScreen> {
                               vertical: 3,
                             ),
                             decoration: BoxDecoration(
-                              color: _getSeverityColor(alert.severity),
+                              color: _getRiskColor(alert.floodRiskLevel),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              alert.severity,
+                              alert.floodRiskLevel,
                               style: GoogleFonts.poppins(
-                                fontSize: 10,
+                                fontSize: 9,
                                 fontWeight: FontWeight.w700,
                                 color: Colors.white,
                               ),
@@ -627,7 +656,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _formatTime(alert.detectedAt),
+                        _formatForecastTime(alert.forecastTime),
                         style: GoogleFonts.poppins(
                           fontSize: 10,
                           fontWeight: FontWeight.w500,
@@ -640,6 +669,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
               ],
             ),
           ),
+
           // Card body
           Container(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
@@ -655,7 +685,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
               children: [
                 Expanded(
                   child: Text(
-                    alert.message,
+                    _getRiskMessage(alert),
                     style: GoogleFonts.poppins(
                       fontSize: 12,
                       color: Colors.grey[600],
@@ -664,36 +694,49 @@ class _AlertsScreenState extends State<AlertsScreen> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFCEBEB),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFE24B4A),
-                          shape: BoxShape.circle,
-                        ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Active',
-                        style: GoogleFonts.poppins(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFFE24B4A),
-                        ),
+                      decoration: BoxDecoration(
+                        color: _getRiskBgColor(alert.floodRiskLevel),
+                        borderRadius: BorderRadius.circular(6),
                       ),
-                    ],
-                  ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: _getRiskColor(alert.floodRiskLevel),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Active',
+                            style: GoogleFonts.poppins(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: _getRiskColor(alert.floodRiskLevel),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _timeAgo(alert.createdAt),
+                      style: GoogleFonts.poppins(
+                        fontSize: 10,
+                        color: Colors.grey[400],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -729,7 +772,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
           ),
           const SizedBox(height: 20),
           ElevatedButton.icon(
-            onPressed: _fetchActiveAlerts,
+            onPressed: _fetchAlerts,
             icon: const Icon(Icons.refresh_rounded, size: 18),
             label: Text(
               'Try Again',
@@ -784,7 +827,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            'No active alerts at the moment',
+            'No flood alerts at the moment',
             style: GoogleFonts.poppins(
               fontSize: 13,
               color: Colors.grey[500],

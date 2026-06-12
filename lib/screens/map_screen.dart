@@ -3,6 +3,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:math';
+import '../services/prediction_service.dart';
+import '../widgets/bottom_nav_bar.dart';
+import 'dart:ui' as ui;
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -13,93 +16,119 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
+  final PredictionService _predictionService = PredictionService();
+
+  List<Map<String, dynamic>> _predictions = [];
+  bool _isLoading = true;
+  String? _errorMessage;
   Map<String, dynamic>? _selectedStation;
+  DateTime? _lastUpdated;
 
-  final List<Map<String, dynamic>> _stations = [
-    {
-      'name': 'Rathnapura',
-      'lat': 6.6828,
-      'lng': 80.3992,
-      'risk': 'High',
-      'waterLevel': 28.5,
-      'rainfall': 220,
-      'alertLevel': 'Major Flood',
-      'affectedArea': 120.0,
-    },
-    {
-      'name': 'Ellagawa',
-      'lat': 6.7167,
-      'lng': 80.2833,
-      'risk': 'Medium',
-      'waterLevel': 11.2,
-      'rainfall': 163,
-      'alertLevel': 'Minor Flood',
-      'affectedArea': 45.0,
-    },
-    {
-      'name': 'Putupaula',
-      'lat': 6.6500,
-      'lng': 80.4500,
-      'risk': 'Medium',
-      'waterLevel': 3.8,
-      'rainfall': 95,
-      'alertLevel': 'Alert',
-      'affectedArea': 30.0,
-    },
-    {
-      'name': 'Millakanda',
-      'lat': 6.7500,
-      'lng': 80.3500,
-      'risk': 'Low',
-      'waterLevel': 4.2,
-      'rainfall': 78,
-      'alertLevel': 'Normal',
-      'affectedArea': 0.0,
-    },
-  ];
+  // Fixed coordinates for each station
+  final Map<String, List<double>> _stationCoords = {
+    'Ellagawa':   [6.730, 80.213],
+    'Putupaula':  [6.612, 80.060],
+    'Rathnapura': [6.690, 80.380],
+  };
 
-  Color _getRiskColor(String risk) {
-    switch (risk) {
-      case 'High':
-        return const Color(0xFFE24B4A);
-      case 'Medium':
-        return const Color(0xFFBA7517);
-      case 'Low':
-        return const Color(0xFF3B6D11);
-      default:
-        return Colors.grey;
+  @override
+  void initState() {
+    super.initState();
+    _loadPredictions();
+  }
+
+  Future<void> _loadPredictions() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final data = await _predictionService.getLatestPredictions();
+      if (mounted) {
+        setState(() {
+          _predictions = data;
+          _isLoading = false;
+          _lastUpdated = DateTime.now();
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Could not load predictions';
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  Color _getRiskBgColor(String risk) {
-    switch (risk) {
-      case 'High':
-        return const Color(0xFFFCEBEB);
-      case 'Medium':
-        return const Color(0xFFFAEEDA);
-      case 'Low':
-        return const Color(0xFFEAF3DE);
-      default:
-        return Colors.grey[100]!;
+Color _getRiskColor(String? risk) {
+  switch ((risk ?? '').toLowerCase()) {
+    case 'major flood':
+      return const Color(0xFFEF4444);
+    case 'minor flood':
+      return const Color(0xFFF97316);
+    case 'alert':
+      return const Color(0xFFEAB308);
+    case 'normal':
+      return const Color(0xFF22C55E);
+    default:
+      return Colors.grey;
+  }
+}
+
+Color _getRiskBgColor(String? risk) {
+  switch ((risk ?? '').toLowerCase()) {
+    case 'major flood':
+      return const Color(0xFFFEF2F2);
+    case 'minor flood':
+      return const Color(0xFFFFF7ED);
+    case 'alert':
+      return const Color(0xFFFEFCE8);
+    case 'normal':
+      return const Color(0xFFF0FDF4);
+    default:
+      return Colors.grey[100]!;
+  }
+}
+
+  bool _isFlooding(String? risk) {
+    final r = (risk ?? '').toLowerCase();
+    return r == 'major flood' || r == 'minor flood' || r == 'alert';
+  }
+
+  double _getRadius(dynamic areaSqKm) {
+    if (areaSqKm == null) return 0;
+    final area = double.tryParse(areaSqKm.toString()) ?? 0.0;
+    if (area <= 0) return 0;
+    return sqrt(area * 1000000 / pi);
+  }
+
+  String _formatForecastTime(String? forecastTime) {
+    if (forecastTime == null) return '—';
+    try {
+      final dt = DateTime.parse(forecastTime).toLocal();
+      final months = ['Jan','Feb','Mar','Apr','May','Jun',
+                      'Jul','Aug','Sep','Oct','Nov','Dec'];
+      return '${dt.day.toString().padLeft(2,'0')} ${months[dt.month-1]}, '
+             '${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}';
+    } catch (e) {
+      return forecastTime;
     }
   }
-
-  // Calculate radius from affected area (sq km)
-  double _getRadius(double areaSqKm) {
-    if (areaSqKm <= 0) return 0;
-    return sqrt(areaSqKm * 1000000 / pi);
-  }
-
-  bool _isFlooding(String risk) => risk != 'Low' && risk != 'Normal';
 
   @override
   Widget build(BuildContext context) {
+    // Get forecast time from first prediction
+    final forecastTime = _predictions.isNotEmpty
+        ? _formatForecastTime(_predictions[0]['forecast_time']?.toString())
+        : null;
+
     return Scaffold(
       backgroundColor: const Color(0xFFE8ECF0),
       body: SafeArea(
         child: Column(
           children: [
-            // ── Top bar ──────────────────────────────────────────────────
+            // ── Top bar ──────────────────────────────────────────────
             Container(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               decoration: BoxDecoration(
@@ -132,164 +161,287 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Affected Areas Map',
-                        style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFF0D2137),
-                          letterSpacing: -0.3,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Affected Areas Map',
+                          style: GoogleFonts.poppins(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF0D2137),
+                            letterSpacing: -0.3,
+                          ),
                         ),
-                      ),
-                      Text(
-                        'Kalu Ganga Basin · Rathnapura',
-                        style: GoogleFonts.poppins(
-                          fontSize: 11,
-                          color: Colors.grey[500],
+                        Text(
+                          'Kalu Ganga Basin · Rathnapura',
+                          style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            color: Colors.grey[500],
+                          ),
                         ),
+                      ],
+                    ),
+                  ),
+                  // Refresh button
+                  GestureDetector(
+                    onTap: _loadPredictions,
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8ECF0),
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                    ],
+                      child: const Icon(
+                        Icons.refresh_rounded,
+                        color: Color(0xFF1a3a5c),
+                        size: 20,
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
 
-            // ── Map ──────────────────────────────────────────────────────
+            // ── Forecast time bar ─────────────────────────────────────
+            if (forecastTime != null && !_isLoading)
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8ECF0),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.access_time_rounded,
+                            size: 13,
+                            color: Color(0xFF185FA5),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            'Forecast Time',
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        forecastTime,
+                        style: GoogleFonts.poppins(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF185FA5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            // ── Map ──────────────────────────────────────────────────
             Expanded(
               flex: 3,
-              child: Stack(
-                children: [
-                  FlutterMap(
-                    mapController: _mapController,
-                    options: MapOptions(
-                      initialCenter: const LatLng(6.7056, 80.3847),
-                      initialZoom: 11.0,
-                      onTap: (_, __) =>
-                          setState(() => _selectedStation = null),
-                    ),
-                    children: [
-                      TileLayer(
-                        urlTemplate:
-                            'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                        userAgentPackageName:
-                            'com.example.floodsense_mobile',
-                      ),
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                          color: Color(0xFF1a3a5c)),
+                    )
+                  : _errorMessage != null
+                      ? _buildErrorState()
+                      : Stack(
+                          children: [
+                            FlutterMap(
+                              mapController: _mapController,
+                              options: MapOptions(
+                                initialCenter: const LatLng(6.7056, 80.3847),
+                                initialZoom: 11.0,
+                                interactionOptions: const InteractionOptions(
+                                  flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+                                ),
+                                onTap: (_, __) => setState(
+                                    () => _selectedStation = null),
+                              ),
+                              children: [
+                                TileLayer(
+                                  urlTemplate:
+                                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                  userAgentPackageName:
+                                      'com.example.floodsense_mobile',
+                                ),
 
-                      // ── Affected area circles ─────────────────────────
-                      CircleLayer(
-                        circles: _stations
-                            .where((s) => _isFlooding(s['risk']))
-                            .map((s) {
-                          final color = _getRiskColor(s['risk']);
-                          return CircleMarker(
-                            point: LatLng(s['lat'], s['lng']),
-                            radius: _getRadius(
-                                (s['affectedArea'] as double)),
-                            useRadiusInMeter: true,
-                            color: color.withOpacity(0.18),
-                            borderColor: color.withOpacity(0.6),
-                            borderStrokeWidth: 2,
-                          );
-                        }).toList(),
-                      ),
+                                // Affected area circles
+                                CircleLayer(
+                                  circles: _predictions
+                                      .where((s) => _isFlooding(
+                                          s['flood_risk_level']
+                                              ?.toString()))
+                                      .where((s) => _stationCoords
+                                          .containsKey(s['station_name']))
+                                      .map((s) {
+                                    final color = _getRiskColor(
+                                        s['flood_risk_level']?.toString());
+                                    final coords = _stationCoords[
+                                        s['station_name']]!;
+                                    return CircleMarker(
+                                      point:
+                                          LatLng(coords[0], coords[1]),
+                                      radius: _getRadius(
+                                          s['affected_area_sqkm']),
+                                      useRadiusInMeter: true,
+                                      color: color.withOpacity(0.18),
+                                      borderColor:
+                                          color.withOpacity(0.6),
+                                      borderStrokeWidth: 2,
+                                    );
+                                  }).toList(),
+                                ),
 
-                      // ── Station markers ───────────────────────────────
-                      MarkerLayer(
-                        markers: _stations.map((station) {
-                          final isSelected =
-                              _selectedStation?['name'] ==
-                                  station['name'];
-                          return Marker(
-                            point: LatLng(
-                                station['lat'], station['lng']),
-                            width: isSelected ? 48 : 38,
-                            height: isSelected ? 48 : 38,
-                            child: GestureDetector(
-                              onTap: () => setState(
-                                  () => _selectedStation = station),
-                              child: AnimatedContainer(
-                                duration:
-                                    const Duration(milliseconds: 200),
+                                // Station markers
+                                MarkerLayer(
+                                  markers: _predictions
+                                      .where((s) => _stationCoords
+                                          .containsKey(s['station_name']))
+                                      .map((station) {
+                                    final coords = _stationCoords[
+                                        station['station_name']]!;
+                                    final risk = station['flood_risk_level']
+                                        ?.toString();
+                                    final isSelected =
+                                        _selectedStation?['station_name'] ==
+                                            station['station_name'];
+                                    return Marker(
+                                      point: LatLng(coords[0], coords[1]),
+                                      width: isSelected ? 90 : 80,
+                                      height: isSelected ? 80 : 70,
+                                      child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // Station name label
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF1a3a5c),
+                                            borderRadius: BorderRadius.circular(6),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withOpacity(0.25),
+                                                blurRadius: 4,
+                                                offset: const Offset(0, 1),
+                                              ),
+                                            ],
+                                          ),
+                                          child: Text(
+                                            station['station_name']?.toString() ?? '',
+                                            style: GoogleFonts.poppins(
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w700,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        // Pin circle
+                                        AnimatedContainer(
+                                          duration: const Duration(milliseconds: 200),
+                                          width: isSelected ? 38 : 30,
+                                          height: isSelected ? 38 : 30,
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: _getRiskColor(risk),
+                                              width: isSelected ? 3.5 : 3,
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withOpacity(
+                                                    isSelected ? 0.35 : 0.25),
+                                                blurRadius: isSelected ? 16 : 8,
+                                                offset: const Offset(0, 3),
+                                              ),
+                                            ],
+                                          ),
+                                          child: Icon(
+                                            Icons.sensors_rounded,
+                                            color: _getRiskColor(risk),
+                                            size: isSelected ? 20 : 16,
+                                          ),
+                                        ),
+                                        // Triangle pointer
+                                        CustomPaint(
+                                          size: const Size(12, 6),
+                                          painter: _TrianglePainter(
+                                            color: _getRiskColor(risk),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ],
+                            ),
+
+                            // Legend
+                            Positioned(
+                              top: 12,
+                              right: 12,
+                              child: Container(
+                                padding: const EdgeInsets.all(10),
                                 decoration: BoxDecoration(
-                                  color: _getRiskColor(station['risk']),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: isSelected
-                                        ? Colors.white
-                                        : Colors.white,
-                                    width: isSelected ? 3 : 2.5,
-                                  ),
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: _getRiskColor(
-                                              station['risk'])
-                                          .withOpacity(
-                                              isSelected ? 0.6 : 0.35),
-                                      blurRadius: isSelected ? 14 : 8,
-                                      offset: const Offset(0, 3),
+                                      color:
+                                          Colors.black.withOpacity(0.08),
+                                      blurRadius: 8,
                                     ),
                                   ],
                                 ),
-                                child: const Icon(
-                                  Icons.water_drop_rounded,
-                                  color: Colors.white,
-                                  size: 18,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'LEGEND',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.grey[500],
+                                        letterSpacing: 0.8,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    _buildLegendItem('Major Flood', const Color(0xFFEF4444)),
+                                    _buildLegendItem('Minor Flood', const Color(0xFFF97316)),
+                                    _buildLegendItem('Alert',       const Color(0xFFEAB308)),
+                                    _buildLegendItem('Normal',      const Color(0xFF22C55E)),
+                                  ],
                                 ),
                               ),
                             ),
-                          );
-                        }).toList(),
-                      ),
-                    ],
-                  ),
-
-                  // ── Legend ────────────────────────────────────────────
-                  Positioned(
-                    top: 12,
-                    right: 12,
-                    child: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.08),
-                            blurRadius: 8,
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'LEGEND',
-                            style: GoogleFonts.poppins(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.grey[500],
-                              letterSpacing: 0.8,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          _buildLegendItem(
-                              'Major Flood', const Color(0xFFE24B4A)),
-                          _buildLegendItem(
-                              'Minor Flood', const Color(0xFFBA7517)),
-                          _buildLegendItem(
-                              'Normal', const Color(0xFF3B6D11)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                          ],
+                        ),
             ),
 
-            // ── Station cards panel ───────────────────────────────────────
+            // ── Station cards panel ───────────────────────────────────
             Container(
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -304,13 +456,10 @@ class _MapScreenState extends State<MapScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Panel title
                   Padding(
-                    padding:
-                        const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                     child: Row(
-                      mainAxisAlignment:
-                          MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
                           'Station Status',
@@ -320,197 +469,164 @@ class _MapScreenState extends State<MapScreen> {
                             color: const Color(0xFF0D2137),
                           ),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE8ECF0),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            '${_stations.length} stations',
+                        if (_lastUpdated != null)
+                          Text(
+                            'Updated ${_lastUpdated!.hour.toString().padLeft(2, '0')}:${_lastUpdated!.minute.toString().padLeft(2, '0')}',
                             style: GoogleFonts.poppins(
                               fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey[600],
+                              color: Colors.grey[400],
                             ),
                           ),
-                        ),
                       ],
                     ),
                   ),
 
                   // Horizontal scrollable station cards
                   SizedBox(
-                    height: 110,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                      itemCount: _stations.length,
-                      itemBuilder: (context, index) {
-                        final station = _stations[index];
-                        final risk = station['risk'] as String;
-                        final isSelected =
-                            _selectedStation?['name'] ==
-                                station['name'];
-
-                        return GestureDetector(
-                          onTap: () {
-                            setState(
-                                () => _selectedStation = station);
-                            _mapController.move(
-                              LatLng(station['lat'],
-                                  station['lng']),
-                              12.0,
-                            );
-                          },
-                          child: AnimatedContainer(
-                            duration:
-                                const Duration(milliseconds: 200),
-                            width: 160,
-                            margin: const EdgeInsets.only(right: 10),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? _getRiskBgColor(risk)
-                                  : const Color(0xFFFAFBFC),
-                              borderRadius:
-                                  BorderRadius.circular(14),
-                              border: Border(
-                                left: BorderSide(
-                                  color: _getRiskColor(risk),
-                                  width: 4,
-                                ),
+                    height: 118,
+                    child: _predictions.isEmpty
+                        ? Center(
+                            child: Text(
+                              'No predictions available',
+                              style: GoogleFonts.poppins(
+                                fontSize: 12,
+                                color: Colors.grey[400],
                               ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black
-                                      .withOpacity(
-                                          isSelected ? 0.08 : 0.04),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
                             ),
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
-                              children: [
-                                // Name + badge
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        station['name'],
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                          color:
-                                              const Color(0xFF0D2137),
-                                        ),
-                                        overflow:
-                                            TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    Container(
-                                      padding:
-                                          const EdgeInsets.symmetric(
-                                        horizontal: 5,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
+                          )
+                        : ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            padding:
+                                const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                            itemCount: _predictions.length,
+                            itemBuilder: (context, index) {
+                              final station = _predictions[index];
+                              final risk = station['flood_risk_level']
+                                  ?.toString();
+                              final coords = _stationCoords[
+                                  station['station_name']];
+                              final isSelected =
+                                  _selectedStation?['station_name'] ==
+                                      station['station_name'];
+
+                              return GestureDetector(
+                                onTap: () {
+                                  setState(
+                                      () => _selectedStation = station);
+                                  if (coords != null) {
+                                    _mapController.move(
+                                      LatLng(coords[0], coords[1]),
+                                      12.5,
+                                    );
+                                  }
+                                },
+                                child: AnimatedContainer(
+                                  duration:
+                                      const Duration(milliseconds: 200),
+                                  width: 165,
+                                  margin:
+                                      const EdgeInsets.only(right: 10),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? _getRiskBgColor(risk)
+                                        : const Color(0xFFFAFBFC),
+                                    borderRadius:
+                                        BorderRadius.circular(14),
+                                    border: Border(
+                                      left: BorderSide(
                                         color: _getRiskColor(risk),
-                                        borderRadius:
-                                            BorderRadius.circular(4),
-                                      ),
-                                      child: Text(
-                                        risk,
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 8,
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.white,
-                                        ),
+                                        width: 4,
                                       ),
                                     ),
-                                  ],
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  station['alertLevel'],
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w500,
-                                    color: _getRiskColor(risk),
-                                  ),
-                                ),
-                                const Spacer(),
-                                // Details row
-                                Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.water,
-                                      size: 11,
-                                      color: Color(0xFF185FA5),
-                                    ),
-                                    const SizedBox(width: 3),
-                                    Text(
-                                      '${station['waterLevel']}m',
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color:
-                                            const Color(0xFF0D2137),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Icon(
-                                      Icons.grain,
-                                      size: 11,
-                                      color: Color(0xFF185FA5),
-                                    ),
-                                    const SizedBox(width: 3),
-                                    Text(
-                                      '${station['rainfall']}mm',
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color:
-                                            const Color(0xFF0D2137),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                if (station['affectedArea'] > 0) ...[
-                                  const SizedBox(height: 3),
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        Icons.crop_free_rounded,
-                                        size: 11,
-                                        color: _getRiskColor(risk),
-                                      ),
-                                      const SizedBox(width: 3),
-                                      Text(
-                                        '${station['affectedArea']} sq km',
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w600,
-                                          color: _getRiskColor(risk),
-                                        ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(
+                                            isSelected ? 0.08 : 0.04),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 2),
                                       ),
                                     ],
                                   ),
-                                ],
-                              ],
-                            ),
+                                  padding: const EdgeInsets.all(11),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      // Name + badge
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              station['station_name']
+                                                      ?.toString() ??
+                                                  '',
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w700,
+                                                color: const Color(
+                                                    0xFF0D2137),
+                                              ),
+                                              overflow:
+                                                  TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          Container(
+                                            padding:
+                                                const EdgeInsets.symmetric(
+                                              horizontal: 5,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: _getRiskColor(risk),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              risk ?? 'Normal',
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 7,
+                                                fontWeight: FontWeight.w700,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      // Water level
+                                      _buildCardRow(
+                                        Icons.water,
+                                        'Water',
+                                        '${station['predicted_water_level'] ?? '-'}m',
+                                        const Color(0xFF185FA5),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      // Rainfall
+                                      _buildCardRow(
+                                        Icons.grain,
+                                        'Rain',
+                                        '${station['rainfall'] ?? '-'}mm',
+                                        const Color(0xFF185FA5),
+                                      ),
+                                      // Affected area
+                                      if ((double.tryParse(station['affected_area_sqkm']?.toString() ?? '0') ?? 0.0) > 0.0) ...
+                                      [
+                                        const SizedBox(height: 3),
+                                        _buildCardRow(
+                                          Icons.crop_free_rounded,
+                                          'Area',
+                                          '${double.tryParse(station['affected_area_sqkm']?.toString() ?? '0')?.toStringAsFixed(1) ?? '0'} km²',
+                                          _getRiskColor(risk),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
                   ),
                 ],
               ),
@@ -518,6 +634,32 @@ class _MapScreenState extends State<MapScreen> {
           ],
         ),
       ),
+      bottomNavigationBar: const BottomNavBar(currentIndex: 1),
+    );
+  }
+
+  Widget _buildCardRow(
+      IconData icon, String label, String value, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 11, color: color),
+        const SizedBox(width: 4),
+        Text(
+          '$label: ',
+          style: GoogleFonts.poppins(
+            fontSize: 10,
+            color: Colors.grey[500],
+          ),
+        ),
+        Text(
+          value,
+          style: GoogleFonts.poppins(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF0D2137),
+          ),
+        ),
+      ],
     );
   }
 
@@ -547,4 +689,62 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
   }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.wifi_off_rounded, size: 48, color: Colors.grey[300]),
+          const SizedBox(height: 12),
+          Text(
+            'Could not load predictions',
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              color: Colors.grey[500],
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: _loadPredictions,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: Text(
+              'Try Again',
+              style: GoogleFonts.poppins(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1a3a5c),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TrianglePainter extends CustomPainter {
+  final Color color;
+  const _TrianglePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    final path = ui.Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(size.width / 2, size.height)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_TrianglePainter oldDelegate) =>
+      oldDelegate.color != color;
 }
