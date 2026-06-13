@@ -24,4 +24,7 @@ class ApiConfig {
   static const String resetPassword = '$baseUrl/api/mobile/reset-password';
   static const String updateProfile = '$baseUrl/api/mobile/profile/update';
 
+  // water level latest for home page
+  static const String latestWaterLevels = '$baseUrl/api/water-levels/latest';
+
 }

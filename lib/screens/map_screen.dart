@@ -6,6 +6,7 @@ import 'dart:math';
 import '../services/prediction_service.dart';
 import '../widgets/bottom_nav_bar.dart';
 import 'dart:ui' as ui;
+import '../services/connectivity_service.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -23,6 +24,7 @@ class _MapScreenState extends State<MapScreen> {
   String? _errorMessage;
   Map<String, dynamic>? _selectedStation;
   DateTime? _lastUpdated;
+  bool _isOffline = false;
 
   // Fixed coordinates for each station
   final Map<String, List<double>> _stationCoords = {
@@ -37,29 +39,32 @@ class _MapScreenState extends State<MapScreen> {
     _loadPredictions();
   }
 
-  Future<void> _loadPredictions() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-    try {
-      final data = await _predictionService.getLatestPredictions();
-      if (mounted) {
-        setState(() {
-          _predictions = data;
-          _isLoading = false;
-          _lastUpdated = DateTime.now();
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _errorMessage = 'Could not load predictions';
-          _isLoading = false;
-        });
-      }
+Future<void> _loadPredictions() async {
+  setState(() {
+    _isLoading = true;
+    _errorMessage = null;
+  });
+  try {
+    final online = await ConnectivityService.isOnline();
+    setState(() => _isOffline = !online);
+
+    final data = await _predictionService.getLatestPredictions();
+    if (mounted) {
+      setState(() {
+        _predictions = data;
+        _isLoading = false;
+        _lastUpdated = DateTime.now();
+      });
+    }
+  } catch (e) {
+    if (mounted) {
+      setState(() {
+        _errorMessage = 'Could not load predictions';
+        _isLoading = false;
+      });
     }
   }
+}
 
 Color _getRiskColor(String? risk) {
   switch ((risk ?? '').toLowerCase()) {
@@ -204,6 +209,35 @@ Color _getRiskBgColor(String? risk) {
                 ],
               ),
             ),
+
+            // Offline banner
+            if (_isOffline)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                color: const Color(0xFF1a3a5c),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.wifi_off_rounded,
+                      color: Colors.white,
+                      size: 14,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Offline — map tiles unavailable, showing cached data',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
 
             // ── Forecast time bar ─────────────────────────────────────
             if (forecastTime != null && !_isLoading)
