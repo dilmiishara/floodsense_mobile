@@ -107,6 +107,20 @@ class _AlertsScreenState extends State<AlertsScreen> {
     }
   }
 
+  String _formatCreatedAt(String createdAt) {
+    try {
+      final dt = DateTime.parse(createdAt).toLocal();
+      final months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      ];
+      return '${dt.day.toString().padLeft(2, '0')} ${months[dt.month - 1]}, '
+          '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (e) {
+      return createdAt;
+    }
+  }
+
   void _showHistoryBottomSheet() async {
   setState(() => _historyLoading = true);
 
@@ -376,13 +390,17 @@ class _AlertsScreenState extends State<AlertsScreen> {
   }
 
   String _getRiskMessage(PredictionAlert alert) {
+    final forecastLabel = _formatForecastTime(alert.forecastTime);
     switch (alert.floodRiskLevel.toLowerCase()) {
       case 'major flood':
-        return 'Major flood risk at ${alert.stationName}. Water level: ${alert.predictedWaterLevel}m. Immediate action required.';
+        return 'Major flooding predicted at ${alert.stationName} (water level: ${alert.predictedWaterLevel}m). '
+            'Flood expected around $forecastLabel. Immediate action required.';
       case 'minor flood':
-        return 'Minor flood detected at ${alert.stationName}. Water level: ${alert.predictedWaterLevel}m. Stay cautious.';
+        return 'Minor flooding predicted at ${alert.stationName} (water level: ${alert.predictedWaterLevel}m). '
+            'Flood expected around $forecastLabel. Stay cautious.';
       case 'alert':
-        return 'Flood alert at ${alert.stationName}. Water level: ${alert.predictedWaterLevel}m. Monitor situation closely.';
+        return 'Flood risk detected at ${alert.stationName} (water level: ${alert.predictedWaterLevel}m). '
+            'Flood expected around $forecastLabel. Monitor the situation closely.';
       default:
         return 'Conditions normal at ${alert.stationName}. Water level: ${alert.predictedWaterLevel}m.';
     }
@@ -490,61 +508,74 @@ class _AlertsScreenState extends State<AlertsScreen> {
     );
   }
 
-Widget _buildContent() {
+Widget _buildHistoryBar() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          GestureDetector(
+            onTap: _showHistoryBottomSheet,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 7,
+              ),
+              decoration: BoxDecoration(
+                color: const Color(0xFFDCE8F5),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.history_rounded,
+                    color: Color(0xFF185FA5),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Alert History',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF185FA5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContent() {
     if (_isLoading) {
       return const Center(
         child: CircularProgressIndicator(color: Color(0xFF1a3a5c)),
       );
     }
     if (_errorMessage != null) {
-      return _buildErrorState();
+      return Column(
+        children: [
+          _buildHistoryBar(),
+          Expanded(child: _buildErrorState()),
+        ],
+      );
     }
     if (_alerts.isEmpty) {
-      return _buildEmptyState();
+      return Column(
+        children: [
+          _buildHistoryBar(),
+          Expanded(child: _buildEmptyState()),
+        ],
+      );
     }
     return Column(
       children: [
-        // History button
-        Container(
-          color: Colors.white,
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              GestureDetector(
-                onTap: _showHistoryBottomSheet,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFDCE8F5),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.history_rounded,
-                        color: Color(0xFF185FA5),
-                        size: 16,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Alert History',
-                        style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF185FA5),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+        _buildHistoryBar(),
         // Alerts list
         Expanded(
           child: RefreshIndicator(
@@ -656,7 +687,7 @@ Widget _buildContent() {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _formatForecastTime(alert.forecastTime),
+                        '${_formatCreatedAt(alert.createdAt)}',
                         style: GoogleFonts.poppins(
                           fontSize: 10,
                           fontWeight: FontWeight.w500,

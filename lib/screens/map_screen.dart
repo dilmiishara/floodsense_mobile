@@ -7,6 +7,9 @@ import '../services/prediction_service.dart';
 import '../widgets/bottom_nav_bar.dart';
 import 'dart:ui' as ui;
 import '../services/connectivity_service.dart';
+import 'package:flutter_map_cache/flutter_map_cache.dart';
+import 'package:dio_cache_interceptor_hive_store/dio_cache_interceptor_hive_store.dart';
+import 'package:path_provider/path_provider.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -309,11 +312,24 @@ Color _getRiskBgColor(String? risk) {
                                     () => _selectedStation = null),
                               ),
                               children: [
-                                TileLayer(
-                                  urlTemplate:
-                                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                  userAgentPackageName:
-                                      'com.example.floodsense_mobile',
+                                FutureBuilder(
+                                  future: getApplicationDocumentsDirectory(),
+                                  builder: (context, snapshot) {
+                                    if (!snapshot.hasData) return const SizedBox();
+                                    final cacheStore = HiveCacheStore(
+                                      snapshot.data!.path,
+                                      hiveBoxName: 'flutter_map_cache',
+                                    );
+                                    return TileLayer(
+                                      urlTemplate:
+                                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                      userAgentPackageName:
+                                          'com.example.floodsense_mobile',
+                                      tileProvider: CachedTileProvider(
+                                        store: cacheStore,
+                                      ),
+                                    );
+                                  },
                                 ),
 
                                 // Affected area circles

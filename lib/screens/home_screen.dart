@@ -5,8 +5,9 @@ import '../services/prediction_alert_service.dart';
 import '../services/safe_location_service.dart';
 import '../services/session_service.dart';
 import '../services/water_level_service.dart';
-import '../models/water_level_log.dart';
+import '../services/location_service.dart';
 import '../services/connectivity_service.dart';
+import '../models/water_level_log.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,7 +16,9 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+// ✅ Add WidgetsBindingObserver for foreground detection
+class _HomeScreenState extends State<HomeScreen>
+    with WidgetsBindingObserver {
   final PredictionAlertService _alertService = PredictionAlertService();
   final SafeLocationService _safeLocationService = SafeLocationService();
   final WaterLevelService _waterLevelService = WaterLevelService();
@@ -24,17 +27,39 @@ class _HomeScreenState extends State<HomeScreen> {
   int _safeLocationsCount = 0;
   bool _summaryLoading = true;
   bool _stationsLoading = true;
+  bool _isOffline = false;
   String? _userName;
   List<WaterLevelLog> _stations = [];
   String? _lastUpdated;
-  bool _isOffline = false;
 
   @override
   void initState() {
     super.initState();
+    // ✅ Register observer for foreground detection
+    WidgetsBinding.instance.addObserver(this);
     _fetchSummaryCounts();
     _loadUserName();
     _fetchStations();
+  }
+
+  @override
+  void dispose() {
+    // ✅ Remove observer when screen disposed
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // ✅ Trigger 2 — Foreground detection
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      print('📍 App came to foreground — updating location');
+      // Update location silently when app comes to foreground
+      LocationService.requestAndSaveLocation();
+      // Also refresh data
+      _fetchStations();
+      _fetchSummaryCounts();
+    }
   }
 
   Future<void> _loadUserName() async {
@@ -66,27 +91,39 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-Future<void> _fetchStations() async {
-  final online = await ConnectivityService.isOnline();
-  setState(() => _isOffline = !online);
+  Future<void> _fetchStations() async {
+    final online = await ConnectivityService.isOnline();
+    setState(() => _isOffline = !online);
 
-  try {
-    final stations = await _waterLevelService.getLatestPerStation();
-    if (mounted) {
-      setState(() {
-        _stations = stations;
-        _stationsLoading = false;
-        if (stations.isNotEmpty) {
-          _lastUpdated = _formatTime(stations[0].recordedAt);
-        }
-      });
-    }
-  } catch (e) {
-    if (mounted) {
-      setState(() => _stationsLoading = false);
+    try {
+      final stations = await _waterLevelService.getLatestPerStation();
+      if (mounted) {
+        setState(() {
+          _stations = stations;
+          _stationsLoading = false;
+          if (stations.isNotEmpty) {
+            _lastUpdated = _formatTime(stations[0].recordedAt);
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _stationsLoading = false);
+      }
     }
   }
-}
+
+  // ✅ Trigger 3 — Pull to refresh
+  Future<void> _onRefresh() async {
+    print('🔄 Pull to refresh — updating location and data');
+    // Update location
+    await LocationService.requestAndSaveLocation();
+    // Refresh all data
+    await Future.wait([
+      _fetchStations(),
+      _fetchSummaryCounts(),
+    ]);
+  }
 
   String _formatTime(String dateStr) {
     try {
@@ -330,55 +367,218 @@ Future<void> _fetchStations() async {
                 ),
               ),
 
-
-            // Scrollable content
+            // ✅ Scrollable content with RefreshIndicator
             Expanded(
-              child: CustomScrollView(
-                slivers: [
-                  // Warning Banner
-                  if (hasHighRisk && !_stationsLoading)
-                    SliverToBoxAdapter(
-                      child: Container(
-                        margin:
-                            const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFEF2F2),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: const Color(0xFFEF4444)
-                                .withOpacity(0.3),
+              child: RefreshIndicator(
+                onRefresh: _onRefresh,
+                color: const Color(0xFF1a3a5c),
+                child: CustomScrollView(
+                  slivers: [
+                    // Warning Banner
+                    if (hasHighRisk && !_stationsLoading)
+                      SliverToBoxAdapter(
+                        child: Container(
+                          margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF2F2),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: const Color(0xFFEF4444).withOpacity(0.3),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.warning_rounded,
+                                color: Color(0xFFEF4444),
+                                size: 22,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Flood Warning Active',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: const Color(0xFF791F1F),
+                                      ),
+                                    ),
+                                    Text(
+                                      'One or more stations at elevated risk',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 11,
+                                        color: const Color(0xFFA32D2D),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                         ),
+                      ),
+
+                    // Summary Cards
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                         child: Row(
                           children: [
-                            const Icon(
-                              Icons.warning_rounded,
-                              color: Color(0xFFEF4444),
-                              size: 22,
-                            ),
-                            const SizedBox(width: 10),
                             Expanded(
-                              child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Flood Warning Active',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: const Color(0xFF791F1F),
+                              child: GestureDetector(
+                                onTap: () =>
+                                    Navigator.pushNamed(context, '/alerts'),
+                                child: Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFEF2F2),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: const Color(0xFFEF4444)
+                                          .withOpacity(0.2),
                                     ),
                                   ),
-                                  Text(
-                                    'One or more stations at elevated risk',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 11,
-                                      color: const Color(0xFFA32D2D),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 38,
+                                        height: 38,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius:
+                                              BorderRadius.circular(10),
+                                        ),
+                                        child: const Icon(
+                                          Icons.notifications_rounded,
+                                          color: Color(0xFFEF4444),
+                                          size: 20,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            _summaryLoading
+                                                ? const Padding(
+                                                    padding:
+                                                        EdgeInsets.symmetric(
+                                                            vertical: 6),
+                                                    child: _AnimatedDots(
+                                                      color: Color(0xFFEF4444),
+                                                    ),
+                                                  )
+                                                : Text(
+                                                    '$_activeAlertsCount',
+                                                    style: GoogleFonts.poppins(
+                                                      fontSize: 20,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      color: const Color(
+                                                          0xFF791F1F),
+                                                    ),
+                                                  ),
+                                            Text(
+                                              'Active Alerts',
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 11,
+                                                color:
+                                                    const Color(0xFFA32D2D),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Icon(
+                                        Icons.arrow_forward_ios_rounded,
+                                        size: 12,
+                                        color: Color(0xFFEF4444),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => Navigator.pushNamed(
+                                    context, '/safe-zones'),
+                                child: Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEAF3DE),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: const Color(0xFF3B6D11)
+                                          .withOpacity(0.2),
                                     ),
                                   ),
-                                ],
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 38,
+                                        height: 38,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius:
+                                              BorderRadius.circular(10),
+                                        ),
+                                        child: const Icon(
+                                          Icons.shield_rounded,
+                                          color: Color(0xFF3B6D11),
+                                          size: 20,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            _summaryLoading
+                                                ? const Padding(
+                                                    padding:
+                                                        EdgeInsets.symmetric(
+                                                            vertical: 6),
+                                                    child: _AnimatedDots(
+                                                      color: Color(0xFF3B6D11),
+                                                    ),
+                                                  )
+                                                : Text(
+                                                    '$_safeLocationsCount',
+                                                    style: GoogleFonts.poppins(
+                                                      fontSize: 20,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      color: const Color(
+                                                          0xFF27500A),
+                                                    ),
+                                                  ),
+                                            Text(
+                                              'Safe Locations',
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 11,
+                                                color:
+                                                    const Color(0xFF3B6D11),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Icon(
+                                        Icons.arrow_forward_ios_rounded,
+                                        size: 12,
+                                        color: Color(0xFF3B6D11),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ],
@@ -386,249 +586,77 @@ Future<void> _fetchStations() async {
                       ),
                     ),
 
-                  // Summary Cards
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding:
-                          const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () => Navigator.pushNamed(
-                                  context, '/alerts'),
-                              child: Container(
-                                padding: const EdgeInsets.all(14),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFEF2F2),
-                                  borderRadius:
-                                      BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: const Color(0xFFEF4444)
-                                        .withOpacity(0.2),
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 38,
-                                      height: 38,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius:
-                                            BorderRadius.circular(10),
-                                      ),
-                                      child: const Icon(
-                                        Icons.notifications_rounded,
-                                        color: Color(0xFFEF4444),
-                                        size: 20,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          _summaryLoading
-                                              ? const Padding(
-                                                  padding: EdgeInsets
-                                                      .symmetric(
-                                                          vertical: 6),
-                                                  child: _AnimatedDots(
-                                                    color: Color(
-                                                        0xFFEF4444),
-                                                  ),
-                                                )
-                                              : Text(
-                                                  '$_activeAlertsCount',
-                                                  style: GoogleFonts
-                                                      .poppins(
-                                                    fontSize: 20,
-                                                    fontWeight:
-                                                        FontWeight.w700,
-                                                    color: const Color(
-                                                        0xFF791F1F),
-                                                  ),
-                                                ),
-                                          Text(
-                                            'Active Alerts',
-                                            style: GoogleFonts.poppins(
-                                              fontSize: 11,
-                                              color:
-                                                  const Color(0xFFA32D2D),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const Icon(
-                                      Icons.arrow_forward_ios_rounded,
-                                      size: 12,
-                                      color: Color(0xFFEF4444),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () => Navigator.pushNamed(
-                                  context, '/safe-zones'),
-                              child: Container(
-                                padding: const EdgeInsets.all(14),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFEAF3DE),
-                                  borderRadius:
-                                      BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: const Color(0xFF3B6D11)
-                                        .withOpacity(0.2),
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 38,
-                                      height: 38,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius:
-                                            BorderRadius.circular(10),
-                                      ),
-                                      child: const Icon(
-                                        Icons.shield_rounded,
-                                        color: Color(0xFF3B6D11),
-                                        size: 20,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          _summaryLoading
-                                              ? const Padding(
-                                                  padding: EdgeInsets
-                                                      .symmetric(
-                                                          vertical: 6),
-                                                  child: _AnimatedDots(
-                                                    color: Color(
-                                                        0xFF3B6D11),
-                                                  ),
-                                                )
-                                              : Text(
-                                                  '$_safeLocationsCount',
-                                                  style: GoogleFonts
-                                                      .poppins(
-                                                    fontSize: 20,
-                                                    fontWeight:
-                                                        FontWeight.w700,
-                                                    color: const Color(
-                                                        0xFF27500A),
-                                                  ),
-                                                ),
-                                          Text(
-                                            'Safe Locations',
-                                            style: GoogleFonts.poppins(
-                                              fontSize: 11,
-                                              color:
-                                                  const Color(0xFF3B6D11),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const Icon(
-                                      Icons.arrow_forward_ios_rounded,
-                                      size: 12,
-                                      color: Color(0xFF3B6D11),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  // Section title
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding:
-                          const EdgeInsets.fromLTRB(20, 20, 20, 12),
-                      child: Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Flood Risk Status',
-                            style: GoogleFonts.poppins(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey[600],
-                              letterSpacing: 0.3,
-                            ),
-                          ),
-                          if (_lastUpdated != null)
+                    // Section title
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
                             Text(
-                              'Updated $_lastUpdated',
+                              'Flood Risk Status',
                               style: GoogleFonts.poppins(
-                                fontSize: 11,
-                                color: Colors.grey[500],
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey[600],
+                                letterSpacing: 0.3,
                               ),
                             ),
-                        ],
+                            if (_lastUpdated != null)
+                              Text(
+                                'Updated $_lastUpdated',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 11,
+                                  color: Colors.grey[500],
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
 
-                  // Station cards
-                  _stationsLoading
-                      ? const SliverToBoxAdapter(
-                          child: Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(40),
-                              child: CircularProgressIndicator(
-                                color: Color(0xFF1a3a5c),
+                    // Station cards
+                    _stationsLoading
+                        ? const SliverToBoxAdapter(
+                            child: Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(40),
+                                child: CircularProgressIndicator(
+                                  color: Color(0xFF1a3a5c),
+                                ),
                               ),
                             ),
-                          ),
-                        )
-                      : _stations.isEmpty
-                          ? SliverToBoxAdapter(
-                              child: Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(40),
-                                  child: Text(
-                                    'No station data available',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 13,
-                                      color: Colors.grey[400],
+                          )
+                        : _stations.isEmpty
+                            ? SliverToBoxAdapter(
+                                child: Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(40),
+                                    child: Text(
+                                      'No station data available',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 13,
+                                        color: Colors.grey[400],
+                                      ),
                                     ),
                                   ),
                                 ),
+                              )
+                            : SliverList(
+                                delegate: SliverChildBuilderDelegate(
+                                  (context, index) {
+                                    final station = _stations[index];
+                                    return _buildStationCard(station);
+                                  },
+                                  childCount: _stations.length,
+                                ),
                               ),
-                            )
-                          : SliverList(
-                              delegate: SliverChildBuilderDelegate(
-                                (context, index) {
-                                  final station = _stations[index];
-                                  return _buildStationCard(station);
-                                },
-                                childCount: _stations.length,
-                              ),
-                            ),
 
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: 20),
-                  ),
-                ],
+                    const SliverToBoxAdapter(
+                      child: SizedBox(height: 20),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -724,7 +752,6 @@ Future<void> _fetchStations() async {
                 ),
                 Row(
                   children: [
-                    // Trend arrow
                     if (isRising || isFalling)
                       Container(
                         margin: const EdgeInsets.only(right: 8),
@@ -763,7 +790,6 @@ Future<void> _fetchStations() async {
                           ],
                         ),
                       ),
-                    // Status badge
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 10,
@@ -802,7 +828,6 @@ Future<void> _fetchStations() async {
               children: [
                 Row(
                   children: [
-                    // Water level
                     Expanded(
                       child: Container(
                         padding: const EdgeInsets.all(10),
@@ -819,8 +844,7 @@ Future<void> _fetchStations() async {
                             ),
                             const SizedBox(width: 6),
                             Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   'Water Level',
@@ -844,7 +868,6 @@ Future<void> _fetchStations() async {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    // Rainfall
                     Expanded(
                       child: Container(
                         padding: const EdgeInsets.all(10),
@@ -861,8 +884,7 @@ Future<void> _fetchStations() async {
                             ),
                             const SizedBox(width: 6),
                             Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   'Rainfall',
@@ -887,12 +909,10 @@ Future<void> _fetchStations() async {
                     ),
                   ],
                 ),
-                // Change from previous + source time
                 const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // Change from previous
                     Row(
                       children: [
                         Icon(
@@ -917,7 +937,6 @@ Future<void> _fetchStations() async {
                         ),
                       ],
                     ),
-                    // Source timestamp
                     Text(
                       'Data: ${_formatSourceTime(station.recordedAt)}',
                       style: GoogleFonts.poppins(

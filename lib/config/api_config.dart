@@ -27,4 +27,7 @@ class ApiConfig {
   // water level latest for home page
   static const String latestWaterLevels = '$baseUrl/api/water-levels/latest';
 
+  // save locations of mobile app users
+  static const String saveUserLocation = '$baseUrl/api/user/save-location';
+
 }
