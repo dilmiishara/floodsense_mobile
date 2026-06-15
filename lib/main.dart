@@ -14,6 +14,7 @@ import 'screens/alerts_screen.dart';
 import 'screens/safe_zones_screen.dart';
 import 'screens/profile_screen.dart';
 import 'services/location_service.dart';
+import 'utils/navigator_key.dart';
 
 // ✅ Background task name
 const String backgroundSyncTask = 'floodsense_background_sync';
@@ -67,6 +68,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'FloodSense',
+      navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
