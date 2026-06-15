@@ -4,9 +4,10 @@ class ApiConfig {
   // Safe Locations
   static const String safeLocations = '$baseUrl/api/safe-locations';
 
-  // Alerts
-  static const String activeAlerts = '$baseUrl/api/alerts/active';
-  static const String alertHistory = '$baseUrl/api/alerts/history';
+  // Predictions
+  static const String latestPredictions = '$baseUrl/api/predictions/latest';
+  static const String activeAlerts = '$baseUrl/api/predictions/active-alerts';
+  static const String historyAlerts = '$baseUrl/api/predictions/history-alerts';
 
   // FCM
   static const String saveFcmToken = '$baseUrl/api/fcm/save-token';
@@ -23,6 +24,10 @@ class ApiConfig {
   static const String resetPassword = '$baseUrl/api/mobile/reset-password';
   static const String updateProfile = '$baseUrl/api/mobile/profile/update';
 
-// get latest updated for affected area
-  static const String latestPredictions = '$baseUrl/api/predictions/latest';
+  // water level latest for home page
+  static const String latestWaterLevels = '$baseUrl/api/water-levels/latest';
+
+  // save locations of mobile app users
+  static const String saveUserLocation = '$baseUrl/api/user/save-location';
+
 }
