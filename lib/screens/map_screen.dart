@@ -174,7 +174,7 @@ Color _getRiskBgColor(String? risk) {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Affected Areas Map',
+                          'Predicted Flood Area',
                           style: GoogleFonts.poppins(
                             fontSize: 16,
                             fontWeight: FontWeight.w700,
